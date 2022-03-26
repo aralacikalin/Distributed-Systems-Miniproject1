@@ -3,18 +3,18 @@ import sys
 import subprocess
 import rpyc
 
-number_of_processes = sys.argv[1]
+number_of_processes = int(sys.argv[1])
 
 print(f'N={number_of_processes}')
 
-start_port = 18812
+start_port = 15229
 
 processes_port = []
 processes = []
 for i in range(number_of_processes):
     processes_port.append( start_port+i )
     port_as_string = str(start_port+i)
-    cmd = 'python process.py' + port_as_string
+    cmd = 'python process.py ' + port_as_string
     print( 'cmd', cmd.split() )
     p = subprocess.Popen( cmd.split() )
     processes.append(p)
@@ -35,16 +35,20 @@ for port in processes_port:
 for idx, conn in enumerate(connections):
     other_ps_ports = all_ports_except( processes_port, processes_port[idx] )
     conn.root.other_ps_ports( other_ps_ports )
-
-while True:
-   print( "Input the command: " )
-   command = input()
+running=True
+while running:
+    print( "Input the command: " )
+    command = input()
     for idx, conn in enumerate(connections):
         if command.lower() == 'list':
             process_output = conn.root.list()
             print( f'P{idx} out={process_output}' )
         elif command.lower() == 'exit':
-            conn.root.exit()
+            try:
+                running=False
+                conn.root.exit()
+            except:
+                break
             break
         else:
             cmd_name, value = command.split()
@@ -56,5 +60,6 @@ while True:
 
 # TODO: wait for all process to finish
 
-#for conn in connections:
-#    conn.root.exit()
+
+for conn in connections:
+   conn.root.exit()
