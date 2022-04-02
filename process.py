@@ -119,14 +119,15 @@ class Process:
 
         while True:
             if self.state==DONOTWANT:
-                randomWait=random.randrange(5,15)
+                
+                randomWait=random.uniform(5,self.passiveTime)
 
                 time.sleep(randomWait)
 
                 self.changeStateWanting()
 
             elif(self.state==HELD):
-                randomWait=random.randrange(10,15)
+                randomWait=random.uniform(10,self.criticalSectionTime)
                 
                 time.sleep(randomWait)
                 self.changeStatePassive()
@@ -210,6 +211,10 @@ class ProcessService(rpyc.Service):
         TIMESTAMP+=1
         okCount+=1
         mutex.release()
+    def exposed_time_cs(self,t):
+        thread.criticalSectionTime=t
+    def exposed_time_p(self,t):
+        thread.passiveTime=t
     
     def exposed_list(self):
         # utility method to list proceeses
