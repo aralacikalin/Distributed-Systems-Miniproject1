@@ -2,6 +2,7 @@
 import sys
 import subprocess
 import rpyc
+import time 
 
 number_of_processes = int(sys.argv[1])
 
@@ -27,6 +28,8 @@ def all_ports_except( all_ports, port_to_exclude ):
         output.append( port )
         
     return output
+
+time.sleep(2)
 
 connections = []
 for port in processes_port:

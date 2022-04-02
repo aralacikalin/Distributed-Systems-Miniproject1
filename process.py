@@ -45,98 +45,105 @@ class Process:
         _thread.start_new_thread(self.run, ())
     def updateData(self):
         self.data=self.setData
-    def changeStateAcvtive(self):
-        self.state=HELD
-    def changeStatePassive(self):
-        self.state=DONOTWANT
-    def changeStateWant(self):
-        self.state="want"
-    def sendRequestCriticalSection(self):
+    def changeStateActive(self):
         mutex.acquire()
+        self.state=HELD
+        mutex.release()
+
+    def changeStatePassive(self):
+        mutex.acquire()
+        self.state=DONOTWANT
+        mutex.release()
+
+    def changeStateWant(self):
+        mutex.acquire()
+        self.state="want"
+        mutex.release()
+
+    def changeStateWanting(self):
+        mutex.acquire()
+        self.state="wanting"
+        mutex.release()
+
+    def sendRequestCriticalSection(self):
         global okCount                
         global TIMESTAMP
-        currentTimestamp=TIMESTAMP
+
         for conn in connections:
-            res=conn.root.requestCriticalSection(currentTimestamp,thisPort)
+            res=conn.root.requestCriticalSection(TIMESTAMP,thisPort)
             print(res)
             if(res=="OK"):
+                mutex.acquire()
+
                 okCount+=1
                 TIMESTAMP+=1
-        mutex.release()
+                
+                mutex.release()
+
     def sendACK(self,connections):
         global messageTracker
         global otherProcessPorts
         global okCount
         global TIMESTAMP
-        mutex.acquire()
+
         print(f"MessageTracer: {messageTracker} thisport: {thisPort}, type: {type(otherProcessPorts)}")
 
         for port in messageTracker:
             index=otherProcessPorts.index(port)
             conn=connections[index]
             conn.root.ack(thisPort)
+            
+            mutex.acquire()
             TIMESTAMP+=1
-        
+            mutex.release()
+
+        mutex.acquire()
         messageTracker=[]
         okCount=0
         mutex.release()
 
     def stop(self):
         _thread.exit()
+
     def set_Data(self,newData):
         self.setData=newData
+        
     def run(self):
         # updating data with cache time
         global okCount
-        global messageTracker
         global otherProcessPorts
+
         while True:
-            mutex.acquire()
             if self.state==DONOTWANT:
                 randomWait=random.randrange(5,15)
-                # randomWait=self.passiveTime
-
-                # if(self.passiveTime!=5):
-                #     randomWait=random.randrange(5,self.passiveTime)
-
-                mutex.release()
 
                 time.sleep(randomWait)
-                mutex.acquire()
 
-                self.state="wanting"
+                self.changeStateWanting()
 
             elif(self.state==HELD):
-                # randomWait=self.criticalSectionTime
                 randomWait=random.randrange(10,15)
-                # if(self.criticalSectionTime!=10):
-                #     randomWait=random.randrange(10,self.criticalSectionTime)
-                mutex.release()
-
+                
                 time.sleep(randomWait)
                 self.sendACK(connections)
 
-                mutex.acquire()
                 self.changeStatePassive()
+
             elif(self.state=="wanting"):
-                mutex.release()
 
                 self.sendRequestCriticalSection()
-                mutex.acquire()
 
-
-                self.state="want"
-                if(okCount==len(otherProcessPorts)):
-                    self.changeStateAcvtive()
+                self.changeStateWant()
             
-            elif(self.state=="want"):
+            if(self.state=="want"):
+                mutex.acquire()
+                
                 if(okCount>=len(otherProcessPorts)):
-                    self.changeStateAcvtive()
-            mutex.release()
+                    mutex.release()
+                    self.changeStateActive()
+                    continue
 
-
-
-
+                mutex.release()
 
 
 def cache(replicas:list,time):
@@ -202,7 +209,7 @@ class ProcessService(rpyc.Service):
         mutex.acquire()
         returnValue=thread.state
         if(thread.state=="wanting" or thread.state=="want"):
-            returnValue= WANTED
+            returnValue = WANTED
         mutex.release()
         return returnValue
 
