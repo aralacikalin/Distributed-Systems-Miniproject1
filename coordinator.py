@@ -42,6 +42,9 @@ running=True
 while running:
     print( "Input the command: " )
     command = input()
+    if not command:
+        continue
+
     for idx, conn in enumerate(connections):
         if command.lower() == 'list':
             process_output = conn.root.list()

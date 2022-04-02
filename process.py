@@ -151,14 +151,6 @@ class Process:
                 mutex.release()
 
 
-def cache(replicas:list,time):
-    for p in replicas:
-        p.cacheTime=time
-    print(f"Cache time for update: {time}")
-
-
-
-
 
 thread=Process()
 thread.start()
