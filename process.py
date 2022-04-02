@@ -1,7 +1,7 @@
 """In this version of the server main replica resets when another client connects """
 from multiprocessing import connection
 import rpyc
-from rpyc.utils.server import ThreadedServer
+from rpyc.utils.server import ThreadedServer,OneShotServer
 import datetime
 date_time=datetime.datetime.now()
 
@@ -50,6 +50,24 @@ class Process:
         self.state=DONOTWANT
     def changeStateWant(self):
         self.state="want"
+    def sendRequestCriticalSection(self,currentTimestamp):
+        global okCount
+        for conn in connections:
+            res=conn.root.requestCriticalSection(currentTimestamp,thisPort)
+            print(res)
+            if(res=="OK"):
+                okCount+=1
+    def sendACK(self,connections):
+        global messageTracker
+        global otherProcessPorts
+        global okCount
+        for port in messageTracker:
+            index=otherProcessPorts.index(port)
+            conn=connections[index]
+            conn.root.ack(thisPort)
+        
+        messageTracker=[]
+        okCount=0
 
     def stop(self):
         _thread.exit()
@@ -79,23 +97,16 @@ class Process:
 
                 time.sleep(randomWait)
                 print(f"MessageTracer: {messageTracker} thisport: {thisPort}, type: {type(otherProcessPorts)}")
-                for port in messageTracker:
-                    index=otherProcessPorts.index(port)
-                    conn=connections[index]
-                    conn.root.ack(thisPort)
+                self.sendACK()
 
-                messageTracker=[]
-                okCount=0
+
                 self.changeStatePassive()
             elif(self.state=="wanting"):
                 global TIMESTAMP
                 currentTimestamp=TIMESTAMP
 
-                for conn in connections:
-                    res=conn.root.requestCriticalSection(currentTimestamp,thisPort)
-                    print(res)
-                    if(res=="OK"):
-                        okCount+=1
+                self.sendRequestCriticalSection(currentTimestamp)
+
 
                 self.state="want"
                 if(okCount==len(otherProcessPorts)):
@@ -233,5 +244,7 @@ class ProcessService(rpyc.Service):
 
  
 if __name__=='__main__':
- t=ThreadedServer(ProcessService, port=thisPort)
+#  t=ThreadedServer(ProcessService, port=thisPort)
+ t=OneShotServer(ProcessService, port=thisPort, auto_register=True)
+#  t.start()
  t.start()
