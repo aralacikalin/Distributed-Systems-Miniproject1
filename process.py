@@ -30,7 +30,7 @@ DONOTWANT="DO-NOT-WANT"
 WANTED="WANTED"
 # start the main loop
 running = True
-
+requestTimestamp=111111
 class Process:
 
     def __init__(self, passiveTime=5,criticalSectionTime=10):
@@ -68,10 +68,14 @@ class Process:
     def sendRequestCriticalSection(self):
         global okCount                
         global TIMESTAMP
+        global requestTimestamp
+        mutex.acquire()
+        TIMESTAMP+=1
+        requestTimestamp=TIMESTAMP
+        mutex.release()
 
         for conn in connections:
-            res=conn.root.requestCriticalSection(TIMESTAMP,thisPort)
-            print(res)
+            res=conn.root.requestCriticalSection(requestTimestamp,thisPort)
             if(res=="OK"):
                 mutex.acquire()
 
@@ -86,7 +90,7 @@ class Process:
         global okCount
         global TIMESTAMP
 
-        print(f"MessageTracer: {messageTracker} thisport: {thisPort}, type: {type(otherProcessPorts)}")
+        # print(f"MessageTracer: {messageTracker} thisport: {thisPort}, type: {type(otherProcessPorts)}")
 
         for port in messageTracker:
             index=otherProcessPorts.index(port)
@@ -125,9 +129,9 @@ class Process:
                 randomWait=random.randrange(10,15)
                 
                 time.sleep(randomWait)
+                self.changeStatePassive()
                 self.sendACK(connections)
 
-                self.changeStatePassive()
 
             elif(self.state=="wanting"):
 
@@ -177,18 +181,21 @@ class ProcessService(rpyc.Service):
         global TIMESTAMP
         global messageTracker
         returnValue=None
-        print(f"RECEIVER: {thisPort}\t, SENDER_TM: {otherTimestamp}\t, RECEIVER_TM: {TIMESTAMP}\t,SENDER:{processID}\t receiverState: {thread.state}")
+        # print(f"R:{thisPort} RTM:{TIMESTAMP} STM:{otherTimestamp} S:{processID} rState:{thread.state} RreqTM:{requestTimestamp}",end="")
         if(thread.state==DONOTWANT):
             t=max(TIMESTAMP,otherTimestamp)+1
             TIMESTAMP=t
             returnValue="OK"
         elif(thread.state=="wanting" or thread.state=="want"):
-            if(otherTimestamp<TIMESTAMP):
-                returnValue="OK"
-            else:
+            if(requestTimestamp<otherTimestamp):
                 messageTracker.append(processID)
+            elif(requestTimestamp==otherTimestamp and thisPort<processID):
+                messageTracker.append(processID)
+            else:
+                returnValue="OK"
         elif(thread.state==HELD):
             messageTracker.append(processID)
+        # print(f" out:{returnValue}")
         mutex.release()
         return returnValue
 
@@ -196,8 +203,8 @@ class ProcessService(rpyc.Service):
 
 
     def exposed_ack(self,processID):
-        print(f"ACK: OK from {processID} to {thisPort}")
         mutex.acquire()
+        # print(f"ACK: OK from {processID} to {thisPort} currentState: {thread.state}")
         global okCount
         global TIMESTAMP
         TIMESTAMP+=1
