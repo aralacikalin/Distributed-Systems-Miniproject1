@@ -52,19 +52,22 @@ class Process:
         self.state="want"
     def sendRequestCriticalSection(self,currentTimestamp):
         global okCount
-        for conn in connections:
+        for port in otherProcessPorts:
+            conn=rpyc.connect("localhost",port)
             res=conn.root.requestCriticalSection(currentTimestamp,thisPort)
+            conn.close()
+
             print(res)
             if(res=="OK"):
                 okCount+=1
-    def sendACK(self,connections):
+    def sendACK(self):
         global messageTracker
         global otherProcessPorts
         global okCount
         for port in messageTracker:
-            index=otherProcessPorts.index(port)
-            conn=connections[index]
+            conn=rpyc.connect("localhost",port)
             conn.root.ack(thisPort)
+            conn.close()
         
         messageTracker=[]
         okCount=0
@@ -157,9 +160,7 @@ class ProcessService(rpyc.Service):
         global connections
         for port in ports:
             otherProcessPorts.append(port)
-        for port in otherProcessPorts:
 
-            connections.append(rpyc.connect("localhost",port))
     def exposed_exit(self):
 
         try:
@@ -245,6 +246,6 @@ class ProcessService(rpyc.Service):
  
 if __name__=='__main__':
 #  t=ThreadedServer(ProcessService, port=thisPort)
- t=OneShotServer(ProcessService, port=thisPort, auto_register=True)
+ t=OneShotServer(ProcessService, port=thisPort)
 #  t.start()
  t.start()
