@@ -5,7 +5,7 @@ from rpyc.utils.server import ThreadedServer,OneShotServer
 import datetime
 date_time=datetime.datetime.now()
 
-
+from threading import Lock
 import time
 from functools import wraps
 import sys
@@ -14,6 +14,7 @@ import _thread
 import time
 import random
 
+mutex=Lock()
 # global variables
 t=None
 
@@ -50,24 +51,35 @@ class Process:
         self.state=DONOTWANT
     def changeStateWant(self):
         self.state="want"
-    def sendRequestCriticalSection(self,currentTimestamp):
-        global okCount
+    def sendRequestCriticalSection(self):
+        mutex.acquire()
+        global okCount                
+        global TIMESTAMP
+        currentTimestamp=TIMESTAMP
         for conn in connections:
             res=conn.root.requestCriticalSection(currentTimestamp,thisPort)
             print(res)
             if(res=="OK"):
                 okCount+=1
+                TIMESTAMP+=1
+        mutex.release()
     def sendACK(self,connections):
         global messageTracker
         global otherProcessPorts
         global okCount
+        global TIMESTAMP
+        mutex.acquire()
+        print(f"MessageTracer: {messageTracker} thisport: {thisPort}, type: {type(otherProcessPorts)}")
+
         for port in messageTracker:
             index=otherProcessPorts.index(port)
             conn=connections[index]
             conn.root.ack(thisPort)
+            TIMESTAMP+=1
         
         messageTracker=[]
         okCount=0
+        mutex.release()
 
     def stop(self):
         _thread.exit()
@@ -79,6 +91,7 @@ class Process:
         global messageTracker
         global otherProcessPorts
         while True:
+            mutex.acquire()
             if self.state==DONOTWANT:
                 randomWait=random.randrange(5,15)
                 # randomWait=self.passiveTime
@@ -86,7 +99,11 @@ class Process:
                 # if(self.passiveTime!=5):
                 #     randomWait=random.randrange(5,self.passiveTime)
 
+                mutex.release()
+
                 time.sleep(randomWait)
+                mutex.acquire()
+
                 self.state="wanting"
 
             elif(self.state==HELD):
@@ -94,34 +111,31 @@ class Process:
                 randomWait=random.randrange(10,15)
                 # if(self.criticalSectionTime!=10):
                 #     randomWait=random.randrange(10,self.criticalSectionTime)
+                mutex.release()
 
                 time.sleep(randomWait)
-                print(f"MessageTracer: {messageTracker} thisport: {thisPort}, type: {type(otherProcessPorts)}")
-                self.sendACK()
+                self.sendACK(connections)
 
-
+                mutex.acquire()
                 self.changeStatePassive()
             elif(self.state=="wanting"):
-                global TIMESTAMP
-                currentTimestamp=TIMESTAMP
+                mutex.release()
 
-                self.sendRequestCriticalSection(currentTimestamp)
+                self.sendRequestCriticalSection()
+                mutex.acquire()
 
 
                 self.state="want"
                 if(okCount==len(otherProcessPorts)):
                     self.changeStateAcvtive()
+            
             elif(self.state=="want"):
                 if(okCount>=len(otherProcessPorts)):
                     self.changeStateAcvtive()
+            mutex.release()
 
 
 
-
-
-def tick(running,dummy):
-    while running:
-        pass
 
 
 
@@ -134,22 +148,12 @@ def cache(replicas:list,time):
 
 
 
-
-
-
-def update(mainReplica,replicas,newData):
-    mainReplica.data=newData
-    for r in replicas:
-        r.set_Data(mainReplica.data)
-
-
 thread=Process()
 thread.start()
 connections=[]
 
 
 # start a separate thread for system tick
-_thread.start_new_thread(tick, (running,"skdj"))
 
 class ProcessService(rpyc.Service):
     def exposed_other_ps_ports(self,ports):
@@ -158,93 +162,54 @@ class ProcessService(rpyc.Service):
         for port in ports:
             otherProcessPorts.append(port)
         for port in otherProcessPorts:
-
             connections.append(rpyc.connect("localhost",port))
-    def exposed_exit(self):
-
-        try:
-            t.close()
-        except:
-            pass
 
 
     def exposed_requestCriticalSection(self,otherTimestamp,processID):
+        mutex.acquire()
         global TIMESTAMP
         global messageTracker
-
+        returnValue=None
         print(f"RECEIVER: {thisPort}\t, SENDER_TM: {otherTimestamp}\t, RECEIVER_TM: {TIMESTAMP}\t,SENDER:{processID}\t receiverState: {thread.state}")
         if(thread.state==DONOTWANT):
             t=max(TIMESTAMP,otherTimestamp)+1
             TIMESTAMP=t
-            return "OK"
+            returnValue="OK"
         elif(thread.state=="wanting" or thread.state=="want"):
             if(otherTimestamp<TIMESTAMP):
-                return "OK"
+                returnValue="OK"
             else:
                 messageTracker.append(processID)
         elif(thread.state==HELD):
             messageTracker.append(processID)
+        mutex.release()
+        return returnValue
 
 
 
 
     def exposed_ack(self,processID):
         print(f"ACK: OK from {processID} to {thisPort}")
+        mutex.acquire()
         global okCount
+        global TIMESTAMP
+        TIMESTAMP+=1
         okCount+=1
+        mutex.release()
+    
     def exposed_list(self):
         # utility method to list proceeses
+        mutex.acquire()
+        returnValue=thread.state
         if(thread.state=="wanting" or thread.state=="want"):
-            return WANTED
-        return thread.state
+            returnValue= WANTED
+        mutex.release()
+        return returnValue
 
-    def exposed_command(self,command):
-        print(f"Received command from client: {command}")
-        cmd = command.split(" ")
-
-        command = cmd[0]
-
-        if len(cmd) > 3:
-            print("Too many arguments")
-
-        # handle exit
-        elif command == "exit":
-            running=False
-            self.replicas=[]
-            print("Program exited")
-            return False
-
-        # handle list
-        elif command == "list":
-            try:
-                self.list()
-            except:
-                print("Error")
-
-        # handle clock
-        # elif command == "update":
-        #     try:
-        #         update(mainReplica,self.replicas,cmd[1])
-        #     except:
-        #         print("Error")
-        # handle kill <ID>
-        elif command == "cache":
-            try:
-                id = int(cmd[1])
-                cache(self.replicas,id)
-            except:
-                print("Error")
-
-
-        # handle unsupported command        
-        else:
-            print("Unsupported command:", cmd)
 
      
 
  
 if __name__=='__main__':
-#  t=ThreadedServer(ProcessService, port=thisPort)
- t=OneShotServer(ProcessService, port=thisPort, auto_register=True)
-#  t.start()
+ t=ThreadedServer(ProcessService, port=thisPort)
  t.start()
